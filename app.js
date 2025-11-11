@@ -150,7 +150,7 @@ async function handleFiles(files) {
   let processed = 0;
 
   try {
-    const res = await fetch('/api/compress', { method: 'POST', body: form });
+    const res = await fetch('https://mini-compress-img-src.onrender.com/api/compress', { method: 'POST', body: form });
     const data = await res.json();
 
     // Success results
@@ -416,7 +416,7 @@ async function sendToServer(file, formOverride){
   form.append('file', file);
   form.append('format', (typeof selectedFormat !== 'undefined' ? selectedFormat : 'webp'));
   try{
-    const resp = await fetch('/api/compress', { method: 'POST', body: form });
+    const resp = await fetch('https://mini-compress-img-src.onrender.com/api/compress', { method: 'POST', body: form });
     const data = await resp.json();
     if (data && data.ok){
       __batchFiles.push(data.filename);
@@ -432,7 +432,7 @@ async function sendToServer(file, formOverride){
 async function requestZip() {
   if (!__batchFiles.length) return null;
   try{
-    const resp = await fetch('/api/zip', {
+    const resp = await fetch('https://mini-compress-img-src.onrender.com/api/zip', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ files: __batchFiles })
