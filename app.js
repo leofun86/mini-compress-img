@@ -1,6 +1,6 @@
 const uploadInput = document.getElementById("fileInput");
 const list = document.querySelector(".file-list");
-const zipBtn = document.getElementById("downloadZip");
+const zipBtn = document.getElementById("zipAll");
 
 let processed = 0;
 let totalFiles = 0;
