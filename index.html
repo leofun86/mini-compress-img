@@ -1,100 +1,78 @@
-
 <!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Mini TinyPNG – Compresor</title>
+  <title>Mini Compress — Cliente puro</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <header class="site-header">
-    <h1>Mini TinyPNG</h1>
-    <p class="sub">Arrastrá y soltá tus imágenes o usá el botón para cargarlas.</p>
+    <h1>Mini Compress</h1>
+    <p class="subtitle">100% en tu navegador · Sin servidor</p>
   </header>
 
-  <main>
-    <section class="controls">
-      <label>Formato</label>
-      <select id="format">
-        <option value="webp">WebP (recomendado)</option>
-        <option value="jpg">JPG</option>
-        <option value="png">PNG</option>
-        <option value="avif">AVIF</option>
-      </select>
-      <label>Calidad</label>
-      <input type="range" id="quality" min="1" max="100" value="78" />
-      <span id="qualityVal">78</span>
-
-      <label class="profileRef">
-        Perfil de color (opcional, imagen de referencia ICC)
-        <input type="file" id="profileRef" accept="image/*" />
-      </label>
-    </section>
-
-    <section id="dropzone" class="dropzone">
+  <main class="container">
+    <section class="dropzone" id="dropzone">
       <div class="dz-inner">
-        <div class="bear">🐼</div>
-        <p>Soltá tus imágenes aquí</p>
-        <span>o</span>
-        <button id="pickBtn" class="btn">Elegir imágenes</button>
-        <input id="fileInput" type="file" accept="image/*" multiple hidden />
+        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M12 16V4m0 0l-4 4m4-4l4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M20 16v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <p>Arrastrá tus imágenes aquí</p>
+        <p class="muted">o</p>
+        <label class="btn primary">
+          Seleccionar archivos
+          <input id="fileInput" type="file" accept="image/*" multiple hidden />
+        </label>
+        <div class="options">
+          <div class="row">
+            <label>Formato de salida:</label>
+            <select id="formatSelect">
+              <option value="webp">WEBP</option>
+              <option value="jpeg">JPEG</option>
+              <option value="png">PNG</option>
+            </select>
+          </div>
+          <div class="row">
+            <label>Calidad:</label>
+            <input id="qualityRange" type="range" min="40" max="95" value="80" />
+            <span id="qualityVal">80</span>
+          </div>
+          <div class="row hint">Los archivos no salen de tu equipo. Todo se procesa localmente.</div>
+        </div>
       </div>
     </section>
 
-    <section id="queue" class="queue hidden">
-      <h2>Cola de compresión</h2>
-      <ul id="items"></ul>
-
-      <div class="footer-actions">
-        <a id="zipAll" class="btn secondary hidden zipAll" href="#">Descargar todo (ZIP)</a>
-        <button id="resetBtn" class="btn link">Limpiar</button>
+    <section class="list-wrap">
+      <div class="list-head">
+        <span>Archivo</span>
+        <span>Tamaño</span>
+        <span>Progreso</span>
+        <span>Acciones</span>
       </div>
+      <div class="file-list" id="fileList"></div>
     </section>
+
+    <div class="footer-actions">
+      <a id="downloadZip" class="btn secondary hidden" href="#">Descargar ZIP</a>
+    </div>
   </main>
 
-  <footer class="site-footer">
-    <small>Procesa localmente vía tu servidor Node (Sharp). No sube nada a terceros.</small>
-  </footer>
-
-  <!-- Modal de error -->
-  <div id="errorModal" class="modal-overlay hidden" aria-hidden="true">
-    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-      <h3 id="modalTitle">⚠️ Error al procesar la imagen</h3>
-      <p class="friendly"></p>
-      <details>
-        <summary>Ver detalles técnicos</summary>
-        <pre class="technical"></pre>
-      </details>
-      <button id="closeModal" class="btn">Cerrar</button>
+  <!-- Error modal -->
+  <div id="errorModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="err-title">
+    <div class="modal-card">
+      <h3 id="err-title">Se produjo un error</h3>
+      <pre id="err-body" class="err-body"></pre>
+      <button id="err-close" class="btn">Cerrar</button>
     </div>
   </div>
 
-  <script src="./app.js" type="module"></script>
-
-  <!-- Modal de comparación antes/después -->
-  <div id="compareModal" class="modal-overlay hidden">
-    <div class="modal-box compare">
-      <h3>📸 Comparar antes / después</h3>
-      <div class="compare-container">
-        <div class="compare-img before">
-          <img id="compareBefore" alt="Antes" />
-        </div>
-        <div class="compare-img after">
-          <img id="compareAfter" alt="Después" />
-        </div>
-        <div class="compare-slider" id="compareSlider"></div>
-      </div>
-      <div class="zoom-control">
-          <label for="zoomRange">🔍 Zoom</label>
-          <input type="range" id="zoomRange" min="1" max="3" value="1" step="0.05">
-        </div>
-        <div class="pan-controls hidden">
-  <input type="range" id="panX" min="-100" max="100" value="0" step="1">
-  <input type="range" id="panY" min="-100" max="100" value="0" step="1" orient="vertical">
-</div>
-<button id="closeCompare" class="btn">Cerrar</button>
-    </div>
-  </div>
+  <!-- Client-side libs -->
+  <script src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/dist/browser-image-compression.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+  <script src="./app.js"></script>
 </body>
 </html>
