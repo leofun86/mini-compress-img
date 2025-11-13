@@ -1,204 +1,140 @@
-// Mini Compress — Standalone (client-only)
-// Requiere browser-image-compression, JSZip y FileSaver cargados desde CDN (ver index.html).
+/* 
+  imgCompress – Standalone v2
+  (c) 2025 Multi 86 – módulo propio sin dependencias externas
+  Funciones principales: carga, compresión (canvas), descarga y vínculo con el modal Before/After.
+*/
 
-const inputEl = document.getElementById('fileInput');
-const dropzone = document.getElementById('dropzone');
-const fileList = document.getElementById('fileList');
-const formatSel = document.getElementById('formatSelect');
-const qRange = document.getElementById('qualityRange');
-const qVal = document.getElementById('qualityVal');
-const zipBtn = document.getElementById('downloadZip');
+const $ = sel => document.querySelector(sel);
+const $$ = sel => document.querySelectorAll(sel);
 
-const modal = document.getElementById('errorModal');
-const modalBody = document.getElementById('err-body');
-const modalClose = document.getElementById('err-close');
-
-qRange.addEventListener('input', () => qVal.textContent = qRange.value);
-
-// State
-let totalFiles = 0;
-let finished = 0;
-let results = []; // {name, blob, originalSize, outputSize}
-
-// Utility
-const prettyBytes = (num) => {
-  if (num < 1024) return `${num} B`;
-  const units = ['KB','MB','GB'];
-  let i = -1;
-  do { num = num/1024; i++; } while (num >= 1024 && i < units.length-1);
-  return `${num.toFixed(1)} ${units[i]}`;
+const state = {
+  file: null,
+  originalURL: null,
+  compressedURL: null,
+  compressedBlob: null,
+  originalBlob: null,
 };
 
-function openError(message) {
-  modalBody.textContent = String(message || 'Error desconocido');
-  modal.classList.remove('hidden');
-}
-modalClose.addEventListener('click', () => modal.classList.add('hidden'));
+const UI = {
+  fileInput: $('#fileInput'),
+  btnCompress: $('#btnCompress'),
+  progressBar: $('#progressBar'),
+  progressText: $('#progressText'),
+  thumbOriginal: $('#thumbOriginal'),
+  thumbCompressed: $('#thumbCompressed'),
+  sizes: $('#sizes'),
+  result: $('#result'),
+  btnDownload: $('#btnDownload'),
+  btnPreview: $('#btnPreview'),
+  quality: $('#quality'),
+  maxWidth: $('#maxWidth'),
+  maxHeight: $('#maxHeight'),
+  format: $('#format'),
+};
 
-// Progress row factory
-function makeRow(file) {
-  const row = document.createElement('div');
-  row.className = 'row';
-  row.innerHTML = `
-    <div class="name">${file.name}</div>
-    <div class="size">${prettyBytes(file.size)}</div>
-    <div class="progressbar"><div class="progress"></div></div>
-    <div class="actions">
-      <span class="badge">⚠️ Error</span>
-    </div>
-  `;
-  fileList.appendChild(row);
-  return row;
-}
-
-// Progress animator → goes smoothly up to 95%
-function startProgress(progressEl) {
-  let value = 0;
-  const id = setInterval(() => {
-    value = Math.min(value + Math.random()*10, 95);
-    progressEl.style.width = `${value}%`;
-  }, 180);
-  return { id, set100: () => { clearInterval(id); progressEl.style.width = '100%'; } };
+function setProgress(pct, text){
+  UI.progressBar.style.width = `${pct}%`;
+  UI.progressText.textContent = text || `${pct|0}%`;
 }
 
-// Client-side compression (no server)
-async function compressClientSide(file) {
-  // Map UI format to library options
-  const outFmt = formatSel.value; // 'webp'|'jpeg'|'png'
-  const quality = parseInt(qRange.value, 10) || 80;
-
-  const opts = {
-    maxWidthOrHeight: 6000,
-    initialQuality: Math.max(0.4, Math.min(0.95, quality/100)),
-    fileType: outFmt === 'jpeg' ? 'image/jpeg' : (outFmt === 'png' ? 'image/png' : 'image/webp'),
-    // Use Web Worker if available
-    useWebWorker: true,
-    alwaysKeepResolution: true
-  };
-  // library is global: imageCompression
-  const outFile = await imageCompression(file, opts);
-  // Wrap to Blob
-  return new Blob([await outFile.arrayBuffer()], { type: outFile.type });
+function revoke(url){
+  try{ if(url) URL.revokeObjectURL(url); }catch(e){}
 }
 
-// Per-file workflow
-async function handleFile(file) {
-  const row = makeRow(file);
-  const progressEl = row.querySelector('.progressbar > .progress');
-  const { id, set100 } = startProgress(progressEl);
-  const badge = row.querySelector('.badge');
-  const actions = row.querySelector('.actions');
+function resetResult(){
+  revoke(state.originalURL);
+  revoke(state.compressedURL);
+  state.originalURL = state.compressedURL = null;
+  state.compressedBlob = state.originalBlob = null;
+  UI.thumbOriginal.removeAttribute('src');
+  UI.thumbCompressed.removeAttribute('src');
+  UI.btnDownload.disabled = true;
+  UI.btnPreview.disabled = true;
+  UI.sizes.textContent = '';
+  UI.result.classList.add('hidden');
+  setProgress(0,'Listo para comprimir');
+}
 
-  try {
-    // Timeout wrapper (60s) for heavy images on weak devices
-    const blob = await Promise.race([
-      compressClientSide(file),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Tiempo de espera agotado durante la compresión en el navegador')), 60000))
-    ]);
+UI.fileInput.addEventListener('change', () => {
+  resetResult();
+  const f = UI.fileInput.files[0];
+  if(!f){ return; }
+  state.file = f;
+  state.originalBlob = f;
+  state.originalURL = URL.createObjectURL(f);
+  UI.thumbOriginal.src = state.originalURL;
+  UI.result.classList.remove('hidden');
+  setProgress(5,'Imagen cargada');
+});
 
-    set100();
-    progressEl.classList.add('progress--done');
+async function compressViaCanvas(file, {maxW=1920,maxH=1920,quality=0.8,type='image/jpeg'}={}){
+  setProgress(10,'Preparando compresión…');
+  const bmp = await createImageBitmap(file);
+  const scale = Math.min(maxW / bmp.width, maxH / bmp.height, 1);
+  const w = Math.round(bmp.width * scale);
+  const h = Math.round(bmp.height * scale);
+  const canvas = Object.assign(document.createElement('canvas'), { width: w, height: h });
+  const ctx = canvas.getContext('2d', {alpha:false});
+  ctx.drawImage(bmp, 0, 0, w, h);
+  setProgress(70,'Codificando…');
 
-    const outName = (() => {
-      const base = file.name.replace(/\.[^.]+$/, '');
-      const ext = formatSel.value === 'jpeg' ? 'jpg' : (formatSel.value);
-      return `${base}.${ext}`;
-    })();
+  const blob = await new Promise(res => canvas.toBlob(res, type, quality));
+  if(!blob){ throw new Error('Error generando Blob'); }
+  setProgress(95,'Finalizando…');
+  return blob;
+}
 
-    results.push({ name: outName, blob, originalSize: file.size, outputSize: blob.size });
+UI.btnCompress.addEventListener('click', async () => {
+  if(!state.file){ alert('Seleccioná una imagen primero.'); return; }
+  try{
+    UI.btnCompress.disabled = true;
+    setProgress(2,'Iniciando…');
+    const opts = {
+      maxW: parseInt(UI.maxWidth.value,10)||1920,
+      maxH: parseInt(UI.maxHeight.value,10)||1920,
+      quality: parseFloat(UI.quality.value)||0.8,
+      type: UI.format.value || 'image/jpeg'
+    };
+    const blob = await compressViaCanvas(state.file, opts);
+    state.compressedBlob = blob;
+    revoke(state.compressedURL);
+    state.compressedURL = URL.createObjectURL(blob);
+    UI.thumbCompressed.src = state.compressedURL;
 
-    // Download button
-    const a = document.createElement('a');
-    a.className = 'btn download';
-    a.textContent = 'Descargar';
-    a.href = URL.createObjectURL(blob);
-    a.download = outName;
-    actions.appendChild(a);
+    const kb = (n)=> (n/1024).toFixed(1)+' KB';
+    UI.sizes.textContent = `Tamaño original: ${kb(state.file.size)} · Comprimida: ${kb(blob.size)} · Ahorro: ${(100 - (blob.size/state.file.size*100)).toFixed(1)}%`;
 
-    // Update size column to show out
-    const sizeCell = row.querySelector('.size');
-    sizeCell.textContent = `${prettyBytes(file.size)} → ${prettyBytes(blob.size)}`;
-
-  } catch (err) {
-    clearInterval(id);
-    progressEl.classList.add('progress--error');
-    set100();
-    badge.style.display = 'inline-block';
-
-    // Error button
-    const ebtn = document.createElement('button');
-    ebtn.className = 'btn';
-    ebtn.textContent = 'Ver error';
-    ebtn.addEventListener('click', () => openError(err && err.message || 'Error desconocido'));
-    actions.appendChild(ebtn);
-  } finally {
-    finished++;
-    if (finished === totalFiles && results.length) {
-      zipBtn.classList.remove('hidden');
-    }
+    setProgress(100,'Completado');
+    UI.btnDownload.disabled = false;
+    UI.btnPreview.disabled = false;
+  }catch(err){
+    console.error(err);
+    setProgress(0, 'Error: ' + err.message);
+    alert('Ocurrió un error al comprimir la imagen.');
+  }finally{
+    UI.btnCompress.disabled = false;
   }
-}
-
-// Handle multiple
-async function handleFiles(files) {
-  results = [];
-  totalFiles = files.length;
-  finished = 0;
-  fileList.innerHTML = '';
-  zipBtn.classList.add('hidden');
-
-  for (const f of files) {
-    // Basic file type guard
-    if (!/^image\//i.test(f.type)) {
-      const row = makeRow(f);
-      const progressEl = row.querySelector('.progressbar > .progress');
-      progressEl.classList.add('progress--error');
-      progressEl.style.width = '100%';
-      const badge = row.querySelector('.badge');
-      const actions = row.querySelector('.actions');
-      badge.style.display = 'inline-block';
-      const ebtn = document.createElement('button');
-      ebtn.className = 'btn';
-      ebtn.textContent = 'Ver error';
-      ebtn.addEventListener('click', () => openError('Formato no soportado. Subí una imagen.'));
-      actions.appendChild(ebtn);
-      finished++;
-      continue;
-    }
-    handleFile(f);
-  }
-}
-
-// ZIP all
-zipBtn.addEventListener('click', async (e) => {
-  e.preventDefault();
-  if (!results.length) return;
-  const zip = new JSZip();
-  results.forEach(r => zip.file(r.name, r.blob));
-  const blob = await zip.generateAsync({ type: 'blob' });
-  saveAs(blob, 'imagenes_comprimidas.zip');
 });
 
-// Input
-inputEl.addEventListener('change', (e) => {
-  const files = Array.from(e.target.files || []);
-  if (files.length) handleFiles(files);
+UI.btnDownload.addEventListener('click', () => {
+  if(!state.compressedBlob){ return; }
+  const a = document.createElement('a');
+  a.download = (state.file?.name || 'imagen') + (UI.format.value==='image/png'?'.png':UI.format.value==='image/webp'?'.webp':'.jpg');
+  a.href = state.compressedURL;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 });
 
-// Drag & Drop
-['dragenter','dragover'].forEach(evt => {
-  dropzone.addEventListener(evt, (e) => {
-    e.preventDefault(); e.stopPropagation();
-    dropzone.classList.add('dragover');
+// Before/After modal integration (namespace imgCompress)
+const imgCompress = window.imgCompress || (window.imgCompress = {});
+
+imgCompress.openBeforeAfter = () => {
+  if(!state.originalURL || !state.compressedURL){ return; }
+  window.imgCompressBeforeAfter.open({
+    beforeSrc: state.originalURL,
+    afterSrc: state.compressedURL
   });
-});
-['dragleave','drop'].forEach(evt => {
-  dropzone.addEventListener(evt, (e) => {
-    e.preventDefault(); e.stopPropagation();
-    dropzone.classList.remove('dragover');
-  });
-});
-dropzone.addEventListener('drop', (e) => {
-  const files = Array.from(e.dataTransfer?.files || []);
-  if (files.length) handleFiles(files);
-});
+};
+
+UI.btnPreview.addEventListener('click', imgCompress.openBeforeAfter);
